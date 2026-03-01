@@ -1,11 +1,16 @@
 //
 // Created by taxue on 2023/1/19.
+// Updated for ESP-IDF 6.0
 //
 
 #include "Vernon_GT911.h"
+#include "driver/i2c_master.h"
 
 #define I2C_MASTER_FREQ_HZ          100000
 #define I2C_MASTER_TIMEOUT_MS       1000
+
+static i2c_master_bus_handle_t i2c_bus_handle = NULL;
+static i2c_master_dev_handle_t i2c_dev_handle = NULL;
 
 /**
  * @brief GT911 写入数据包
@@ -26,10 +31,7 @@ int GT911_write_regs(Vernon_GT911 * VernonGt911, uint16_t reg, uint8_t *data, ui
     memcpy(write_package + 1, &regl, 1);
     memcpy(write_package + 2, data, len);
 
-    i2c_err = i2c_master_write_to_device(VernonGt911->i2c_num,
-                                         VernonGt911->gt911_addr,
-                                         write_package, len + 2,
-                                         I2C_MASTER_TIMEOUT_MS / portTICK_PERIOD_MS);
+    i2c_err = i2c_master_transmit(i2c_dev_handle, write_package, len + 2, I2C_MASTER_TIMEOUT_MS);
 
     free(write_package);
     return i2c_err;
@@ -49,9 +51,7 @@ int GT911_read_regs(Vernon_GT911 * VernonGt911, uint16_t reg, uint8_t *data, uin
     uint8_t regh = (reg>>8)&0xff;
     uint8_t rbuf[2] = {regh, regl};
 
-    return i2c_master_write_read_device(VernonGt911->i2c_num, VernonGt911->gt911_addr,
-                                        rbuf, 2, data, len,
-                                        I2C_MASTER_TIMEOUT_MS / portTICK_PERIOD_MS);
+    return i2c_master_transmit_receive(i2c_dev_handle, rbuf, 2, data, len, I2C_MASTER_TIMEOUT_MS);
 }
 
 /**
@@ -69,22 +69,31 @@ int GT911_read_regs(Vernon_GT911 * VernonGt911, uint16_t reg, uint8_t *data, uin
 void GT911_init(Vernon_GT911 * VernonGt911, int8_t SDA, int8_t SCL, int8_t INT, int8_t RES,
                 i2c_port_t i2c_num, uint8_t gt911_addr, uint16_t width, uint16_t height)
 {
-    VernonGt911->gt911_i2c_config.mode = I2C_MODE_MASTER;
-    VernonGt911->gt911_i2c_config.sda_io_num = SDA;
-    VernonGt911->gt911_i2c_config.sda_pullup_en = GPIO_PULLUP_ENABLE;
-    VernonGt911->gt911_i2c_config.scl_io_num = SCL;
-    VernonGt911->gt911_i2c_config.scl_pullup_en = GPIO_PULLUP_ENABLE;
-    VernonGt911->gt911_i2c_config.master.clk_speed = I2C_MASTER_FREQ_HZ;
-
     VernonGt911->i2c_num = i2c_num;
     VernonGt911->gt911_addr = gt911_addr;
     VernonGt911->height = height;
     VernonGt911->width = width;
 
-    i2c_param_config(i2c_num, &VernonGt911->gt911_i2c_config);
+    // 配置 I2C 主机总线
+    i2c_master_bus_config_t i2c_bus_config = {
+        .i2c_port = i2c_num,
+        .sda_io_num = SDA,
+        .scl_io_num = SCL,
+        .clk_source = I2C_CLK_SRC_DEFAULT,
+        .glitch_ignore_cnt = 7,
+        .flags.enable_internal_pullup = true,
+    };
+    
+    i2c_new_master_bus(&i2c_bus_config, &i2c_bus_handle);
 
-    i2c_driver_install(i2c_num, VernonGt911->gt911_i2c_config.mode, 0,
-                       0, 0);
+    // 配置 I2C 设备
+    i2c_device_config_t i2c_dev_config = {
+        .dev_addr_length = I2C_ADDR_BIT_LEN_7,
+        .device_address = gt911_addr,
+        .scl_speed_hz = I2C_MASTER_FREQ_HZ,
+    };
+    
+    i2c_master_bus_add_device(i2c_bus_handle, &i2c_dev_config, &i2c_dev_handle);
 
     uint8_t buf[5] = {0};
     GT911_read_regs(VernonGt911, GT911_PRODUCT_ID, buf, 4);

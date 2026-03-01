@@ -5,9 +5,10 @@
 #ifndef GT911FORESP_Vernon_GT911_H
 #define GT911FORESP_Vernon_GT911_H
 
-#include "driver/i2c.h"
+#include "driver/i2c_types.h"
 #include "string.h"
 #include "esp_log.h"
+#include "stdlib.h"
 
 /**指令定义**/
 
@@ -150,7 +151,6 @@ typedef struct {
 
 /**类结构体**/
 typedef struct {
-    i2c_config_t gt911_i2c_config;
     i2c_port_t i2c_num;
     uint8_t gt911_addr;
     uint16_t height;
